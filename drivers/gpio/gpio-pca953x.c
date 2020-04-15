@@ -29,6 +29,7 @@
 #define PCA953X_OUTPUT		0x01
 #define PCA953X_INVERT		0x02
 #define PCA953X_DIRECTION	0x03
+#define PCA953X_MASK		0x04
 
 #define REG_ADDR_AI		0x80
 
@@ -119,12 +120,14 @@ struct pca953x_reg_config {
 	int direction;
 	int output;
 	int input;
+	int mask;
 };
 
 static const struct pca953x_reg_config pca953x_regs = {
 	.direction = PCA953X_DIRECTION,
 	.output = PCA953X_OUTPUT,
 	.input = PCA953X_INPUT,
+	.mask = PCA953X_MASK
 };
 
 static const struct pca953x_reg_config pca957x_regs = {
@@ -299,6 +302,10 @@ static int pca953x_gpio_direction_input(struct gpio_chip *gc, unsigned off)
 	ret = pca953x_write_single(chip, chip->regs->direction, reg_val, off);
 	if (ret)
 		goto exit;
+	/* enable irq */
+	ret = pca953x_write_single(chip, chip->regs->mask, 0, off);
+	if (ret)
+		goto exit;
 
 	chip->reg_direction[off / BANK_SZ] = reg_val;
 exit:
@@ -314,6 +321,10 @@ static int pca953x_gpio_direction_output(struct gpio_chip *gc,
 	int ret;
 
 	mutex_lock(&chip->i2c_lock);
+	/* disable irq */
+	ret = pca953x_write_single(chip, chip->regs->mask, 1, off);
+	if (ret)
+		goto exit;
 	/* set output level */
 	if (val)
 		reg_val = chip->reg_output[off / BANK_SZ]
