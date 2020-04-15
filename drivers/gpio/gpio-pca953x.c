@@ -28,6 +28,7 @@
 #define PCA953X_OUTPUT		0x01
 #define PCA953X_INVERT		0x02
 #define PCA953X_DIRECTION	0x03
+#define PCA953X_MASK		0x04
 
 #define REG_ADDR_MASK		GENMASK(5, 0)
 #define REG_ADDR_EXT		BIT(6)
@@ -123,6 +124,7 @@ struct pca953x_reg_config {
 	int output;
 	int input;
 	int invert;
+	int mask;
 };
 
 static const struct pca953x_reg_config pca953x_regs = {
@@ -130,6 +132,7 @@ static const struct pca953x_reg_config pca953x_regs = {
 	.output = PCA953X_OUTPUT,
 	.input = PCA953X_INPUT,
 	.invert = PCA953X_INVERT,
+	.mask = PCA953X_MASK
 };
 
 static const struct pca953x_reg_config pca957x_regs = {
@@ -368,11 +371,18 @@ static int pca953x_gpio_direction_input(struct gpio_chip *gc, unsigned off)
 	struct pca953x_chip *chip = gpiochip_get_data(gc);
 	u8 dirreg = pca953x_recalc_addr(chip, chip->regs->direction, off,
 					true, false);
+	u8 maskreg = pca953x_recalc_addr(chip, chip->regs->mask, off,
+					true, false);
 	u8 bit = BIT(off % BANK_SZ);
 	int ret;
 
 	mutex_lock(&chip->i2c_lock);
 	ret = regmap_write_bits(chip->regmap, dirreg, bit, bit);
+	if (ret)
+		goto exit;
+	/* enable irq */
+	ret = regmap_write_bits(chip->regmap, maskreg, bit, 0);
+exit:
 	mutex_unlock(&chip->i2c_lock);
 	return ret;
 }
@@ -385,10 +395,16 @@ static int pca953x_gpio_direction_output(struct gpio_chip *gc,
 					true, false);
 	u8 outreg = pca953x_recalc_addr(chip, chip->regs->output, off,
 					true, false);
+	u8 maskreg = pca953x_recalc_addr(chip, chip->regs->mask, off,
+					true, false);
 	u8 bit = BIT(off % BANK_SZ);
 	int ret;
 
 	mutex_lock(&chip->i2c_lock);
+	/* disable irq */
+	ret = regmap_write_bits(chip->regmap, maskreg, bit, 1);
+	if (ret)
+		goto exit;
 	/* set output level */
 	ret = regmap_write_bits(chip->regmap, outreg, bit, val ? bit : 0);
 	if (ret)
