@@ -2279,7 +2279,7 @@ static void pl011_shutdown(struct uart_port *port)
 		hrtimer_try_to_cancel(&(uap->rs485_tx_empty_poll_timer));
 
 		uap->rs485_current_status = rs485_receiving;
-		RS485_SET_RTS_SIGNAL(uap, true);
+//		RS485_SET_RTS_SIGNAL(uap, true);
 	}
 #endif
 
@@ -2599,6 +2599,7 @@ static int pl011_config_rs485(struct uart_port *port,
 	if (port->rs485.flags & SER_RS485_ENABLED) {
 		unsigned int cr;
 
+printk(KERN_INFO "RTS enable with before %d after %d\n", port->rs485.delay_rts_before_send, port->rs485.delay_rts_after_send);
 		hrtimer_try_to_cancel(&(uap->rs485_delay_timer));
 		hrtimer_try_to_cancel(&(uap->rs485_tx_empty_poll_timer));
 
