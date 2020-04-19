@@ -59,134 +59,134 @@
 				led1 {
 					label = "auto";
 					gpios = < &i2cgpio1 0x02 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led2 {
 					label = "service";
 					gpios = < &i2cgpio1 0x01 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led3 {
 					label = "timeout";
 					gpios = < &i2cgpio1 0x00 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led4 {
 					label = "pool";
 					gpios = < &i2cgpio1 0x07 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led5 {
 					label = "spa";
 					gpios = < &i2cgpio1 0x06 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led6 {
 					label = "fill";
 					gpios = < &i2cgpio1 0x05 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led7 {
 					label = "drain";
 					gpios = < &i2cgpio1 0x04 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led8 {
 					label = "valves";
 					gpios = < &i2cgpio1 0x09 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led9 {
 					label = "filter";
 					gpios = < &i2cgpio1 0x0a GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led10 {
 					label = "aux1";
 					gpios = < &i2cgpio1 0x0c GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led11 {
 					label = "aux2";
 					gpios = < &i2cgpio1 0x26 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led12 {
 					label = "aux3";
 					gpios = < &i2cgpio1 0x24 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led13 {
 					label = "aux4";
 					gpios = < &i2cgpio1 0x22 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led14 {
 					label = "aux5";
 					gpios = < &i2cgpio1 0x20 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led15 {
 					label = "aux6";
 					gpios = < &i2cgpio1 0x1e GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led16 {
 					label = "aux7";
 					gpios = < &i2cgpio1 0x1c GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led17 {
 					label = "aux8";
 					gpios = < &i2cgpio1 0x1a GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led18 {
 					label = "heater";
 					gpios = < &i2cgpio1 0x18 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led19 {
 					label = "solar";
 					gpios = < &i2cgpio1 0x14 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led20 {
 					label = "unused1";
 					gpios = < &i2cgpio1 0x0e GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 					linux,default-trigger = "timer";
 				};
 		
 				led21 {
 					label = "unused2";
 					gpios = < &i2cgpio1 0x10 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 		
 				led22 {
 					label = "panel";
 					gpios = < &i2cgpio1 0x13 GPIO_ACTIVE_LOW >;
-					default-state = "on";
+					default-state = "off";
 				};
 			};
 		
