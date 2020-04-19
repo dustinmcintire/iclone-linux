@@ -401,12 +401,13 @@ static int pca953x_gpio_direction_output(struct gpio_chip *gc,
 	int ret;
 
 	mutex_lock(&chip->i2c_lock);
-	/* disable irq */
-	ret = regmap_write_bits(chip->regmap, maskreg, bit, 1);
-	if (ret)
-		goto exit;
 	/* set output level */
 	ret = regmap_write_bits(chip->regmap, outreg, bit, val ? bit : 0);
+	if (ret)
+		goto exit;
+
+	/* disable irq */
+	ret = regmap_write_bits(chip->regmap, maskreg, bit, 1);
 	if (ret)
 		goto exit;
 
