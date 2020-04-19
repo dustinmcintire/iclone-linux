@@ -302,8 +302,8 @@ static int pca953x_gpio_direction_input(struct gpio_chip *gc, unsigned off)
 	ret = pca953x_write_single(chip, chip->regs->direction, reg_val, off);
 	if (ret)
 		goto exit;
-	/* enable irq */
-	ret = pca953x_write_single(chip, chip->regs->mask, 0, off);
+	/* enable input irq */
+	ret = pca953x_write_single(chip, chip->regs->mask, ~reg_val, off);
 	if (ret)
 		goto exit;
 
@@ -320,12 +320,8 @@ static int pca953x_gpio_direction_output(struct gpio_chip *gc,
 	u8 reg_val;
 	int ret;
 
-	mutex_lock(&chip->i2c_lock);
-	/* disable irq */
-	ret = pca953x_write_single(chip, chip->regs->mask, 1, off);
-	if (ret)
-		goto exit;
 	/* set output level */
+	mutex_lock(&chip->i2c_lock);
 	if (val)
 		reg_val = chip->reg_output[off / BANK_SZ]
 			| (1u << (off % BANK_SZ));
@@ -339,8 +335,13 @@ static int pca953x_gpio_direction_output(struct gpio_chip *gc,
 
 	chip->reg_output[off / BANK_SZ] = reg_val;
 
-	/* then direction */
 	reg_val = chip->reg_direction[off / BANK_SZ] & ~(1u << (off % BANK_SZ));
+	/* disable irq */
+	ret = pca953x_write_single(chip, chip->regs->mask, ~reg_val, off);
+	if (ret)
+		goto exit;
+
+	/* then direction */
 	ret = pca953x_write_single(chip, chip->regs->direction, reg_val, off);
 	if (ret)
 		goto exit;
@@ -687,7 +688,7 @@ static int pca953x_irq_setup(struct pca953x_chip *chip,
 					   NULL,
 					   pca953x_irq_handler,
 					   IRQF_TRIGGER_LOW | IRQF_ONESHOT |
-						   IRQF_SHARED,
+					   	   IRQF_SHARED,
 					   dev_name(&client->dev), chip);
 		if (ret) {
 			dev_err(&client->dev, "failed to request irq %d\n",
