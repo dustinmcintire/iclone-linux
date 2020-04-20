@@ -21,6 +21,7 @@
 				#size-cells = <0>;
 				interrupt-parent = < &gpio >;
 				interrupts = < 23 IRQ_TYPE_EDGE_FALLING >;
+				reset-gpio = < &gpio 25 GPIO_ACTIVE_LOW >;
 				#gpio-cells = < 0x02 >;
 				gpio-controller;
 				gpio-line-names =  "led3", "led2",  "led1",   "sw1",  "led7", "led6",  "led5", "led4",
@@ -44,6 +45,12 @@
 				                  "out17", "out18", "out19", "out20", "out21",   "tp3",     "tp4",   "tp5",
 				                    "in1",   "in2",   "in3",   "in4",   "in5",   "in6",     "in7",   "in8",
 				                    "in9",  "in10",  "in11",   "tp6",   "tp7",   "tp8", "unused1", "unused2";
+				// Set unused pins as outputs to prevent spurious interrupts
+				unused {
+					gpio-hog;
+					gpios = <21 0>, <22 0>, <23 0>, <35 0>, <36 0>, <37 0>, <38 0>, <39 0>;
+					output-low;
+				};
 
 			};		
 		};
