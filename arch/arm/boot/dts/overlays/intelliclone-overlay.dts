@@ -330,4 +330,18 @@
 			};
 		};
 	};
+	fragment@2 {
+		target = <&gpio>;
+		__overlay__ {
+			pinctrl-names = "default";
+			pinctrl-0 = <&irq_pins>;
+
+			irq_pins: irq_pins {
+				brcm,pins = <23 24>; /* GPIO23 and GPIO24 */
+				brcm,function = <0>; /* Input */
+				brcm,pull = <2>;     /* Pull up */
+			};
+		};
+	};
+    
 };
