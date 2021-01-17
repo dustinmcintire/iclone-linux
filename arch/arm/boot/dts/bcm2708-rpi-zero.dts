@@ -10,7 +10,7 @@
 	model = "Raspberry Pi Zero";
 
 	chosen {
-		bootargs = "coherent_pool=1M snd_bcm2835.enable_compat_alsa=0 snd_bcm2835.enable_hdmi=1 snd_bcm2835.enable_headphones=1";
+		bootargs = "coherent_pool=1M snd_bcm2835.enable_compat_alsa=0 snd_bcm2835.enable_hdmi=1";
 	};
 };
 
@@ -76,10 +76,6 @@
 	clock-frequency = <100000>;
 };
 
-&i2c0mux {
-	pinctrl-0 = <&i2c0_pins>;
-};
-
 &i2c1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c1_pins>;
@@ -110,6 +106,7 @@
 &audio {
 	pinctrl-names = "default";
 	pinctrl-0 = <&audio_pins>;
+	brcm,disable-headphones = <1>;
 };
 
 / {

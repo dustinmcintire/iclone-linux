@@ -426,6 +426,8 @@ struct unicam_device {
 	struct clk *clock;
 	/* vpu clock handle */
 	struct clk *vpu_clock;
+	/* clock status for error handling */
+	bool clocks_enabled;
 	/* V4l2 device */
 	struct v4l2_device v4l2_dev;
 	struct media_device mdev;
@@ -707,13 +709,6 @@ static void unicam_wr_dma_addr(struct unicam_device *dev, dma_addr_t dmaaddr,
 			       unsigned int buffer_size, int pad_id)
 {
 	dma_addr_t endaddr = dmaaddr + buffer_size;
-
-	/*
-	 * dmaaddr and endaddr should be a 32-bit address with the top two bits
-	 * set to 0x3 to signify uncached access through the Videocore memory
-	 * controller.
-	 */
-	WARN_ON((dmaaddr >> 30) != 0x3 || (endaddr >> 30) != 0x3);
 
 	if (pad_id == IMAGE_PAD) {
 		reg_write(dev, UNICAM_IBSA0, dmaaddr);
@@ -1731,14 +1726,14 @@ static int unicam_start_streaming(struct vb2_queue *vq, unsigned int count)
 		goto err_disable_unicam;
 	}
 
+	dev->clocks_enabled = true;
 	return 0;
 
 err_disable_unicam:
 	unicam_disable(dev);
 	clk_disable_unprepare(dev->clock);
 err_vpu_clock:
-	ret = clk_set_min_rate(dev->vpu_clock, 0);
-	if (ret)
+	if (clk_set_min_rate(dev->vpu_clock, 0))
 		unicam_err(dev, "failed to reset the VPU clock\n");
 	clk_disable_unprepare(dev->vpu_clock);
 err_pm_put:
@@ -1758,8 +1753,6 @@ static void unicam_stop_streaming(struct vb2_queue *vq)
 	node->streaming = false;
 
 	if (node->pad_id == IMAGE_PAD) {
-		int ret;
-
 		/*
 		 * Stop streaming the sensor and disable the peripheral.
 		 * We cannot continue streaming embedded data with the
@@ -1770,12 +1763,14 @@ static void unicam_stop_streaming(struct vb2_queue *vq)
 
 		unicam_disable(dev);
 
-		ret = clk_set_min_rate(dev->vpu_clock, 0);
-		if (ret)
-			unicam_err(dev, "failed to reset the min VPU clock\n");
+		if (dev->clocks_enabled) {
+			if (clk_set_min_rate(dev->vpu_clock, 0))
+				unicam_err(dev, "failed to reset the min VPU clock\n");
 
-		clk_disable_unprepare(dev->vpu_clock);
-		clk_disable_unprepare(dev->clock);
+			clk_disable_unprepare(dev->vpu_clock);
+			clk_disable_unprepare(dev->clock);
+			dev->clocks_enabled = false;
+		}
 		unicam_runtime_put(dev);
 
 	} else if (node->pad_id == METADATA_PAD) {
