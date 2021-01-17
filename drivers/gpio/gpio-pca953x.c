@@ -253,6 +253,7 @@ static int pca953x_bank_shift(struct pca953x_chip *chip)
 #define PCA953x_BANK_OUTPUT	BIT(1)
 #define PCA953x_BANK_POLARITY	BIT(2)
 #define PCA953x_BANK_CONFIG	BIT(3)
+#define PCA953x_BANK_MASK	BIT(4)
 
 #define PCA957x_BANK_INPUT	BIT(0)
 #define PCA957x_BANK_POLARITY	BIT(1)
@@ -274,6 +275,7 @@ static int pca953x_bank_shift(struct pca953x_chip *chip)
  *     Output port			0x00 + 1 * bank_size	RW
  *     Polarity Inversion port		0x00 + 2 * bank_size	RW
  *     Configuration port		0x00 + 3 * bank_size	RW
+ *     Bank IRQ Mask			0x00 + 4 * bank_size	RW
  *   - PCA957x with mixed up registers
  *     Input port			0x00 + 0 * bank_size	R
  *     Polarity Inversion port		0x00 + 1 * bank_size	RW
@@ -326,7 +328,8 @@ static bool pca953x_readable_register(struct device *dev, unsigned int reg)
 
 	if (PCA_CHIP_TYPE(chip->driver_data) == PCA953X_TYPE) {
 		bank = PCA953x_BANK_INPUT | PCA953x_BANK_OUTPUT |
-		       PCA953x_BANK_POLARITY | PCA953x_BANK_CONFIG;
+		       PCA953x_BANK_POLARITY | PCA953x_BANK_CONFIG |
+		       PCA953x_BANK_MASK;
 	} else {
 		bank = PCA957x_BANK_INPUT | PCA957x_BANK_OUTPUT |
 		       PCA957x_BANK_POLARITY | PCA957x_BANK_CONFIG |
@@ -349,7 +352,7 @@ static bool pca953x_writeable_register(struct device *dev, unsigned int reg)
 
 	if (PCA_CHIP_TYPE(chip->driver_data) == PCA953X_TYPE) {
 		bank = PCA953x_BANK_OUTPUT | PCA953x_BANK_POLARITY |
-			PCA953x_BANK_CONFIG;
+			PCA953x_BANK_CONFIG | PCA953x_BANK_MASK;
 	} else {
 		bank = PCA957x_BANK_OUTPUT | PCA957x_BANK_POLARITY |
 			PCA957x_BANK_CONFIG | PCA957x_BANK_BUSHOLD;
