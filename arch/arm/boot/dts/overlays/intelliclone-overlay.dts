@@ -1,0 +1,347 @@
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/input/input.h>
+
+/{
+	compatible = "brcm,bcm2835";
+	fragment@0 {
+		target = <&i2c_arm>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			i2cgpio1: pca9505@20  {
+				compatible = "nxp,pca9505";
+				reg = < 0x20 >;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				interrupt-parent = < &gpio >;
+				interrupts = < 23 IRQ_TYPE_EDGE_FALLING >;
+				reset-gpio = < &gpio 25 GPIO_ACTIVE_LOW >;
+				#gpio-cells = < 0x02 >;
+				gpio-controller;
+				gpio-line-names =  "led3", "led2",  "led1",   "sw1",  "led7", "led6",  "led5", "led4",
+				                    "sw2", "led8",  "led9",   "sw3", "led10", "sw13", "led20", "sw14",
+				                  "led21", "sw15",  "sw16", "led22", "led19", "sw12",   "tp1",  "tp2",
+				                  "led18", "sw11", "led17",  "sw10", "led16",  "sw9", "led15",  "sw8",
+				                  "led14",  "sw7", "led13",   "sw6", "led12",  "sw5", "led11",  "sw4";
+			};
+
+			i2cgpio2: pca9505@21  {
+				compatible = "nxp,pca9505";
+				reg = < 0x21 >;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				interrupt-parent = < &gpio >;
+				interrupts = < 24 IRQ_TYPE_EDGE_FALLING >;
+				#gpio-cells = < 0x02 >;
+				gpio-controller;
+				gpio-line-names =  "out1",  "out2",  "out3",  "out4",  "out5",  "out6",    "out7",  "out8",
+				                   "out9", "out10", "out11", "out12", "out13", "out14",   "out15", "out16",
+				                  "out17", "out18", "out19", "out20", "out21",   "tp3",     "tp4",   "tp5",
+				                    "in1",   "in2",   "in3",   "in4",   "in5",   "in6",     "in7",   "in8",
+				                    "in9",  "in10",  "in11",   "tp6",   "tp7",   "tp8", "unused1", "unused2";
+				// Set unused pins as outputs to prevent spurious interrupts
+				unused {
+					gpio-hog;
+					gpios = <21 0>, <22 0>, <23 0>, <35 0>, <36 0>, <37 0>, <38 0>, <39 0>;
+					output-low;
+				};
+
+			};		
+		};
+	};
+
+	fragment@1 {
+		target-path = "/";
+		__overlay__ {
+
+			intelliclone-leds {
+				compatible = "gpio-leds";
+
+				led1 {
+					label = "auto";
+					gpios = < &i2cgpio1 0x02 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led2 {
+					label = "service";
+					gpios = < &i2cgpio1 0x01 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led3 {
+					label = "timeout";
+					gpios = < &i2cgpio1 0x00 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led4 {
+					label = "pool";
+					gpios = < &i2cgpio1 0x07 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led5 {
+					label = "spa";
+					gpios = < &i2cgpio1 0x06 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led6 {
+					label = "fill";
+					gpios = < &i2cgpio1 0x05 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led7 {
+					label = "drain";
+					gpios = < &i2cgpio1 0x04 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led8 {
+					label = "valves";
+					gpios = < &i2cgpio1 0x09 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led9 {
+					label = "filter";
+					gpios = < &i2cgpio1 0x0a GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led10 {
+					label = "aux1";
+					gpios = < &i2cgpio1 0x0c GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led11 {
+					label = "aux2";
+					gpios = < &i2cgpio1 0x26 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led12 {
+					label = "aux3";
+					gpios = < &i2cgpio1 0x24 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led13 {
+					label = "aux4";
+					gpios = < &i2cgpio1 0x22 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led14 {
+					label = "aux5";
+					gpios = < &i2cgpio1 0x20 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led15 {
+					label = "aux6";
+					gpios = < &i2cgpio1 0x1e GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led16 {
+					label = "aux7";
+					gpios = < &i2cgpio1 0x1c GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led17 {
+					label = "aux8";
+					gpios = < &i2cgpio1 0x1a GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led18 {
+					label = "heater";
+					gpios = < &i2cgpio1 0x18 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led19 {
+					label = "solar";
+					gpios = < &i2cgpio1 0x14 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led20 {
+					label = "unused1";
+					gpios = < &i2cgpio1 0x0e GPIO_ACTIVE_LOW >;
+					default-state = "off";
+					linux,default-trigger = "timer";
+				};
+
+				led21 {
+					label = "unused2";
+					gpios = < &i2cgpio1 0x10 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+
+				led22 {
+					label = "panel";
+					gpios = < &i2cgpio1 0x13 GPIO_ACTIVE_LOW >;
+					default-state = "off";
+				};
+			};
+
+			intelliclone-buttons {
+				compatible = "gpio-keys";
+
+				sw1 {
+					label = "mode";
+					gpios = < &i2cgpio1 0x03 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x01 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw2 {
+					label = "v";
+					gpios = < &i2cgpio1 0x08 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x02 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw3 {
+					label = "f";
+					gpios = < &i2cgpio1 0x0b GPIO_ACTIVE_LOW >;
+					linux,code = < 0x03 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw4 {
+					label = "1";
+					gpios = < &i2cgpio1 0x27 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x04 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw5 {
+					label = "2";
+					gpios = < &i2cgpio1 0x25 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x05 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw6 {
+					label = "3";
+					gpios = < &i2cgpio1 0x23 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x06 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw7 {
+					label = "4";
+					gpios = < &i2cgpio1 0x21 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x07 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw8 {
+					label = "5";
+					gpios = < &i2cgpio1 0x1f GPIO_ACTIVE_LOW >;
+					linux,code = < 0x08 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw9 {
+					label = "6";
+					gpios = < &i2cgpio1 0x1d GPIO_ACTIVE_LOW >;
+					linux,code = < 0x09 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw10 {
+					label = "7";
+					gpios = < &i2cgpio1 0x1b GPIO_ACTIVE_LOW >;
+					linux,code = < 0x0a >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw11 {
+					label = "8";
+					gpios = < &i2cgpio1 0x19 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x0b >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw12 {
+					label = "heater";
+					gpios = < &i2cgpio1 0x15 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x0c >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw13 {
+					label = "solar";
+					gpios = < &i2cgpio1 0x0d GPIO_ACTIVE_LOW >;
+					linux,code = < 0x0d >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw14 {
+					label = "unused1";
+					gpios = < &i2cgpio1 0x0f GPIO_ACTIVE_LOW >;
+					linux,code = < 0x0e >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw15 {
+					label = "unused2";
+					gpios = < &i2cgpio1 0x11 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x0f >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+
+				sw16 {
+					label = "reset";
+					gpios = < &i2cgpio1 0x12 GPIO_ACTIVE_LOW >;
+					linux,code = < 0x10 >;
+					debounce-interval = < 100 >;
+					gpio-key;
+				};
+			};
+		};
+	};
+	fragment@2 {
+		target = <&gpio>;
+		__overlay__ {
+			pinctrl-names = "default";
+			pinctrl-0 = <&irq_pins>;
+
+			irq_pins: irq_pins {
+				brcm,pins = <23 24>; /* GPIO23 and GPIO24 */
+				brcm,function = <0>; /* Input */
+				brcm,pull = <2>;     /* Pull up */
+			};
+		};
+	};
+    
+};
