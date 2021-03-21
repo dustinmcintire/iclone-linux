@@ -73,6 +73,18 @@ config SERIAL_AMBA_PL011_CONSOLE
 	  your boot loader (lilo or loadlin) about how to pass options to the
 	  kernel at boot time.)
 
+config SERIAL_AMBA_PL011_SOFT_RS485
+	bool "RS485 software direction switching for ARM AMBA PL011 serial"
+	depends on SERIAL_AMBA_PL011=y
+	select SERIAL_CORE
+	help
+	  Enable RS485 software direction switching of driver enable (RTS pin)
+	  for ARM AMBA PL011 serial. AMBA PL011 does not have HW support for
+	  RS485. This driver use 2 hrtimers. One is used for rs485 delays.
+	  Secon one is used for polling of TX FIFO. There is not TX FIFO
+	  empty interrupt in PL011. Secondary timer is started by empty
+	  transmit buffer.
+
 config SERIAL_EARLYCON_ARM_SEMIHOST
 	bool "Early console using ARM semihosting"
 	depends on ARM64 || ARM

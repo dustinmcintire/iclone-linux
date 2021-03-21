@@ -14,6 +14,9 @@
  * not have an RI input, nor do they have DTR or RTS outputs.  If
  * required, these have to be supplied via some other means (eg, GPIO)
  * and hooked into this driver.
+ *
+ * Added software RS485 support, 05/jan/2020, Ivan Sistik
+ *     sistik@3ksolutions.sk
  */
 
 #include <linux/module.h>
@@ -41,6 +44,7 @@
 #include <linux/sizes.h>
 #include <linux/io.h>
 #include <linux/acpi.h>
+#include <linux/math64.h>
 
 #include "amba-pl011.h"
 
@@ -54,6 +58,18 @@
 
 #define UART_DR_ERROR		(UART011_DR_OE|UART011_DR_BE|UART011_DR_PE|UART011_DR_FE)
 #define UART_DUMMY_DR_RX	(1 << 16)
+
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+/*
+ * Enum with current status
+ */
+enum rs485_status {
+	rs485_receiving,
+	rs485_delay_before_send,
+	rs485_sending,
+	rs485_delay_after_send
+};
+#endif
 
 static u16 pl011_std_offsets[REG_ARRAY_SIZE] = {
 	[REG_DR] = UART01x_DR,
@@ -266,6 +282,14 @@ struct uart_amba_port {
 	unsigned int		fixed_baud;	/* vendor-set fixed baud rate */
 	char			type[12];
 	bool			irq_locked;	/* in irq, unreleased lock */
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	enum rs485_status	rs485_current_status; /* status used for RTS */
+	enum rs485_status	rs485_next_status; /* this status after tick */
+	struct hrtimer		rs485_delay_timer;
+	struct hrtimer		rs485_tx_empty_poll_timer;
+	unsigned long		send_char_time;	/* send char (nanoseconds) */
+	bool			rs485_last_char_sending;
+#endif
 #ifdef CONFIG_DMA_ENGINE
 	/* DMA stuff */
 	bool			using_tx_dma;
@@ -275,6 +299,25 @@ struct uart_amba_port {
 	bool			dma_probed;
 #endif
 };
+
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+
+static void pl011_rs485_start_rts_delay(struct uart_amba_port *uap);
+
+#define RS485_SET_RTS_SIGNAL(pUAP, value)		\
+	do {						\
+		unsigned int rts_temp_cr;		\
+		rts_temp_cr = pl011_read(pUAP, REG_CR);	\
+		if (!(value))				\
+			rts_temp_cr |= UART011_CR_RTS;	\
+		else					\
+			rts_temp_cr &= ~UART011_CR_RTS;	\
+		pl011_write(rts_temp_cr, pUAP, REG_CR);	\
+	} while (0)
+
+#define RS485_TX_FIFO_EMPTY(pUAP)			\
+	(pl011_read(pUAP, REG_FR) & UART011_FR_TXFE)
+#endif
 
 static unsigned int pl011_reg_to_offset(const struct uart_amba_port *uap,
 	unsigned int reg)
@@ -1295,6 +1338,11 @@ static void pl011_stop_tx(struct uart_port *port)
 	uap->im &= ~UART011_TXIM;
 	pl011_write(uap->im, uap, REG_IMSC);
 	pl011_dma_tx_stop(uap);
+
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	if (uap->port.rs485.flags & SER_RS485_ENABLED)
+		pl011_rs485_start_rts_delay(uap);
+#endif
 }
 
 static bool pl011_tx_chars(struct uart_amba_port *uap, bool from_irq);
@@ -1313,8 +1361,122 @@ static void pl011_start_tx(struct uart_port *port)
 	struct uart_amba_port *uap =
 	    container_of(port, struct uart_amba_port, port);
 
-	if (!pl011_dma_tx_start(uap))
-		pl011_start_tx_pio(uap);
+#define START_PL011_TX()				\
+	do {						\
+		if (!pl011_dma_tx_start(uap))		\
+			pl011_start_tx_pio(uap);	\
+	} while (0)
+
+#ifndef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	START_PL011_TX();
+#else
+
+#define CANCEL_RS485_TIMERS()						 \
+	do {								 \
+		hrtimer_try_to_cancel(&(uap->rs485_delay_timer));	 \
+		hrtimer_try_to_cancel(&(uap->rs485_tx_empty_poll_timer));\
+	} while (0)
+
+	if (uap->port.rs485.flags & SER_RS485_ENABLED) {
+		ktime_t ktime;
+
+		switch (uap->rs485_current_status) {
+		case rs485_delay_after_send:
+			/* stop old delay timer */
+			CANCEL_RS485_TIMERS();
+
+			/* check if timer expired */
+			if (uap->rs485_current_status
+					!= rs485_delay_after_send) {
+				/* Timer expired and RTS is in wrong state.*/
+				uap->rs485_current_status
+					= rs485_delay_before_send;
+				uap->rs485_next_status = rs485_sending;
+
+				/* Set RTS */
+				RS485_SET_RTS_SIGNAL(uap,
+					uap->port.rs485.flags
+						& SER_RS485_RTS_ON_SEND);
+
+				/* Start timer */
+				ktime = ktime_set(0,
+					  uap->port.rs485
+						.delay_rts_before_send
+					  * 1000000L);
+
+				hrtimer_start(
+					&(uap->rs485_delay_timer),
+					ktime,
+					HRTIMER_MODE_REL);
+				return;
+			}
+
+			/* timer was stopped and driver can continue sending */
+			uap->rs485_current_status = rs485_sending;
+			uap->rs485_next_status = rs485_sending;
+
+			/* driver is already in sending state */
+			START_PL011_TX();
+			break;
+
+		case rs485_sending:
+			/* stop old timer. There can be running timer	*/
+			/* which is checking TX FIFO empty flag		*/
+			CANCEL_RS485_TIMERS();
+
+			/* driver is already in sending state */
+			START_PL011_TX();
+			break;
+
+		case rs485_receiving:
+		default:
+			/* stop old timer. There can be running timer	*/
+			/* which is checking TX FIFO empty flag		*/
+			CANCEL_RS485_TIMERS();
+
+			/* Set RTS */
+			RS485_SET_RTS_SIGNAL(uap,
+				     uap->port.rs485.flags
+					     & SER_RS485_RTS_ON_SEND);
+
+			if (uap->port.rs485.delay_rts_before_send == 0) {
+				/* Change state */
+				uap->rs485_current_status
+					= rs485_sending;
+				uap->rs485_next_status
+					= rs485_sending;
+
+				/* driver is in sending state */
+				START_PL011_TX();
+				break;
+			}
+
+			/* Change state */
+			uap->rs485_current_status
+				= rs485_delay_before_send;
+			uap->rs485_next_status = rs485_sending;
+
+			/* Start timer */
+			ktime = ktime_set(0,
+				  uap->port.rs485.delay_rts_before_send
+				  * 1000000L);
+			hrtimer_start(&(uap->rs485_delay_timer),
+				ktime,
+				HRTIMER_MODE_REL);
+			break;
+
+		case rs485_delay_before_send:
+			/* do nothing because delay timer should be running */
+			break;
+		}
+	} else {
+		START_PL011_TX();
+	}
+#undef CANCEL_RS485_TIMERS
+
+#endif
+
+#undef START_PL011_TX
 }
 
 static void pl011_throttle(struct uart_port *port)
@@ -1500,6 +1662,167 @@ static void check_apply_cts_event_workaround(struct uart_amba_port *uap)
 	pl011_read(uap, REG_ICR);
 }
 
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+
+/*
+ * Change state according to pending delay
+ * Locking: port is locked in this function
+ */
+static enum hrtimer_restart
+pl011_rs485_tx_poll_timer(struct hrtimer *timer)
+{
+	unsigned long flags;
+	ktime_t ktime;
+
+	struct uart_amba_port *uap =
+		container_of(timer, struct uart_amba_port,
+			     rs485_tx_empty_poll_timer);
+
+	spin_lock_irqsave(&uap->port.lock, flags);
+
+	if (!(uart_circ_empty(&uap->port.state->xmit))) {
+		spin_unlock_irqrestore(&uap->port.lock, flags);
+		return HRTIMER_NORESTART;
+	}
+
+	if (!RS485_TX_FIFO_EMPTY(uap) || !uap->rs485_last_char_sending) {
+		/*
+		 * FIFO is empty but there can be last char in transmit shift
+		 * register so we need one more tick
+		 */
+		uap->rs485_last_char_sending = RS485_TX_FIFO_EMPTY(uap);
+
+		hrtimer_forward_now(timer, ktime_set(0, uap->send_char_time));
+
+		spin_unlock_irqrestore(&uap->port.lock, flags);
+		return HRTIMER_RESTART;
+	}
+
+	/* Check if delay after send is set*/
+	if (uap->port.rs485.delay_rts_after_send == 0) {
+		/* Change state */
+		uap->rs485_current_status = rs485_receiving;
+		uap->rs485_next_status = rs485_receiving;
+
+		/* if there is no delay after send change RTS value*/
+		RS485_SET_RTS_SIGNAL(uap,
+			     uap->port.rs485.flags
+				     & SER_RS485_RTS_AFTER_SEND);
+
+		spin_unlock_irqrestore(&uap->port.lock, flags);
+		return HRTIMER_NORESTART;
+	}
+
+	/* Change state */
+	uap->rs485_current_status = rs485_delay_after_send;
+	uap->rs485_next_status = rs485_receiving;
+
+	/* RTS will be set in timer handler */
+
+	/* Start delay timer */
+	ktime = ktime_set(0, (uap->port.rs485.delay_rts_after_send
+			* 1000000L));
+	hrtimer_start(&(uap->rs485_delay_timer), ktime, HRTIMER_MODE_REL);
+
+	spin_unlock_irqrestore(&uap->port.lock, flags);
+	return HRTIMER_NORESTART;
+}
+
+/*
+ * Change state according to pending delay
+ * Locking: port is locked in this function
+ */
+static enum hrtimer_restart
+pl011_rs485_timer(struct hrtimer *timer)
+{
+	unsigned long flags;
+
+	struct uart_amba_port *uap =
+		container_of(timer, struct uart_amba_port, rs485_delay_timer);
+
+	spin_lock_irqsave(&uap->port.lock, flags);
+
+	if (uap->rs485_current_status == uap->rs485_next_status) {
+		/* timer was canceled or handled */
+		spin_unlock_irqrestore(&uap->port.lock, flags);
+		return HRTIMER_NORESTART;
+	}
+
+	switch (uap->rs485_current_status) {
+	case rs485_delay_before_send:
+		uap->rs485_current_status = rs485_sending;
+		uap->rs485_next_status = rs485_sending;
+		if (!pl011_dma_tx_start(uap))
+			pl011_start_tx_pio(uap);
+		break;
+
+	case rs485_delay_after_send:
+		uap->rs485_current_status = rs485_receiving;
+		uap->rs485_next_status = rs485_receiving;
+		RS485_SET_RTS_SIGNAL(uap,
+			     uap->port.rs485.flags
+				     & SER_RS485_RTS_AFTER_SEND);
+		break;
+
+	default:
+		break;
+	}
+
+	spin_unlock_irqrestore(&uap->port.lock, flags);
+	return HRTIMER_NORESTART;
+}
+
+/*
+ * Evaluate transmit buffer status and start delay to off
+ * Locking: called with port lock held and IRQs disabled
+ */
+static void pl011_rs485_start_rts_delay(struct uart_amba_port *uap)
+{
+	ktime_t ktime;
+
+	if (uap->rs485_current_status == rs485_receiving)
+		return;
+
+	/* if there is timeout in progress cancel it and start new */
+	hrtimer_try_to_cancel(&(uap->rs485_delay_timer));
+	hrtimer_try_to_cancel(&(uap->rs485_tx_empty_poll_timer));
+
+
+	if (!RS485_TX_FIFO_EMPTY(uap)
+			|| uap->port.rs485.delay_rts_after_send == 0) {
+		/*
+		 * Schedule validation timer if there is data in TX FIFO
+		 * because there is not TX FIFO empty interrupt
+		 */
+
+		uap->rs485_current_status = rs485_sending;
+		uap->rs485_next_status = rs485_sending;
+
+		uap->rs485_last_char_sending = false;
+
+		ktime = ktime_set(0, uap->send_char_time);
+		hrtimer_start(&(uap->rs485_tx_empty_poll_timer),
+			ktime,
+			HRTIMER_MODE_REL);
+		return;
+	}
+
+	/* Change state */
+	uap->rs485_current_status = rs485_delay_after_send;
+	uap->rs485_next_status = rs485_receiving;
+
+	/* RTS will be set in timer handler */
+
+	/* Start timer */
+	ktime = ktime_set(0, (uap->port.rs485.delay_rts_after_send
+			* 1000000L));
+
+	hrtimer_start(&(uap->rs485_delay_timer),
+		ktime,
+		HRTIMER_MODE_REL);
+}
+#endif
+
 static irqreturn_t pl011_int(int irq, void *dev_id)
 {
 	struct uart_amba_port *uap = dev_id;
@@ -1643,6 +1966,11 @@ static void pl011_quiesce_irqs(struct uart_port *port)
 	 */
 	pl011_write(pl011_read(uap, REG_IMSC) & ~UART011_TXIM, uap,
 		    REG_IMSC);
+
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	if (uap->port.rs485.flags & SER_RS485_ENABLED)
+		pl011_rs485_start_rts_delay(uap);
+#endif
 }
 
 static int pl011_get_poll_char(struct uart_port *port)
@@ -1732,6 +2060,27 @@ static int pl011_hwinit(struct uart_port *port)
 		if (plat->init)
 			plat->init();
 	}
+
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	/*
+	 * Initialize timers used for RS485
+	 */
+	hrtimer_init(&(uap->rs485_delay_timer),
+		CLOCK_MONOTONIC,
+		HRTIMER_MODE_REL);
+
+	uap->rs485_delay_timer.function = &pl011_rs485_timer;
+
+	hrtimer_init(&(uap->rs485_tx_empty_poll_timer),
+		CLOCK_MONOTONIC,
+		HRTIMER_MODE_REL);
+
+	uap->rs485_tx_empty_poll_timer.function = &pl011_rs485_tx_poll_timer;
+
+	uap->rs485_current_status = rs485_receiving;
+	RS485_SET_RTS_SIGNAL(uap, false);
+#endif
+
 	return 0;
 }
 
@@ -1915,6 +2264,16 @@ static void pl011_shutdown(struct uart_port *port)
 	struct uart_amba_port *uap =
 		container_of(port, struct uart_amba_port, port);
 
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	if (uap->port.rs485.flags & SER_RS485_ENABLED) {
+		hrtimer_try_to_cancel(&(uap->rs485_delay_timer));
+		hrtimer_try_to_cancel(&(uap->rs485_tx_empty_poll_timer));
+
+		uap->rs485_current_status = rs485_receiving;
+//		RS485_SET_RTS_SIGNAL(uap, true);
+	}
+#endif
+
 	pl011_disable_interrupts(uap);
 
 	pl011_dma_shutdown(uap);
@@ -1997,6 +2356,24 @@ pl011_set_termios(struct uart_port *port, struct ktermios *termios,
 	unsigned long flags;
 	unsigned int baud, quot, clkdiv;
 
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	unsigned int transfer_bit_count;
+	unsigned long char_transfer_time;
+
+	/*
+	 * Calculate bit count which will be send
+	 * by UART. It is used for calculation of
+	 * time required to start timer until TX FIFO (HW) is empty
+	 * There is not interrupt for FIFO empty in PL011.
+	 * There is only FIFO empty flag in REG_FR.
+	 */
+	transfer_bit_count = 0;
+
+#define	ADD_DATA_BITS(bits)	(transfer_bit_count += bits)
+#else
+#define	ADD_DATA_BITS(bits)
+#endif
+
 	if (uap->vendor->oversampling)
 		clkdiv = 8;
 	else
@@ -2023,28 +2400,52 @@ pl011_set_termios(struct uart_port *port, struct ktermios *termios,
 	switch (termios->c_cflag & CSIZE) {
 	case CS5:
 		lcr_h = UART01x_LCRH_WLEN_5;
+		ADD_DATA_BITS(7);
 		break;
 	case CS6:
 		lcr_h = UART01x_LCRH_WLEN_6;
+		ADD_DATA_BITS(8);
 		break;
 	case CS7:
 		lcr_h = UART01x_LCRH_WLEN_7;
+		ADD_DATA_BITS(9);
 		break;
 	default: // CS8
 		lcr_h = UART01x_LCRH_WLEN_8;
+		ADD_DATA_BITS(10);
 		break;
 	}
-	if (termios->c_cflag & CSTOPB)
+
+	if (termios->c_cflag & CSTOPB) {
 		lcr_h |= UART01x_LCRH_STP2;
+		ADD_DATA_BITS(1);
+	}
+
 	if (termios->c_cflag & PARENB) {
 		lcr_h |= UART01x_LCRH_PEN;
+		ADD_DATA_BITS(1);
+
 		if (!(termios->c_cflag & PARODD))
 			lcr_h |= UART01x_LCRH_EPS;
+
 		if (termios->c_cflag & CMSPAR)
 			lcr_h |= UART011_LCRH_SPS;
 	}
+
+#undef ADD_DATA_BITS
+
 	if (uap->fifosize > 1)
 		lcr_h |= UART01x_LCRH_FEN;
+
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	/* Calculate time required to send one char (nanoseconds) */
+	char_transfer_time =
+		(unsigned long) div_u64(
+				mul_u32_u32(
+					(u32)transfer_bit_count,
+					(u32)NSEC_PER_SEC),
+				(u32)baud);
+#endif
 
 	spin_lock_irqsave(&port->lock, flags);
 
@@ -2052,6 +2453,7 @@ pl011_set_termios(struct uart_port *port, struct ktermios *termios,
 	 * Update the per-port timeout.
 	 */
 	uart_update_timeout(port, termios->c_cflag, baud);
+
 
 	pl011_setup_status_masks(port, termios);
 
@@ -2061,6 +2463,11 @@ pl011_set_termios(struct uart_port *port, struct ktermios *termios,
 	/* first, disable everything */
 	old_cr = pl011_read(uap, REG_CR);
 	pl011_write(0, uap, REG_CR);
+
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	/* Update send_char_time in locked context */
+	uap->send_char_time = char_transfer_time;
+#endif
 
 	if (termios->c_cflag & CRTSCTS) {
 		if (old_cr & UART011_CR_RTS)
@@ -2133,6 +2540,7 @@ static const char *pl011_type(struct uart_port *port)
 {
 	struct uart_amba_port *uap =
 	    container_of(port, struct uart_amba_port, port);
+
 	return uap->port.type == PORT_AMBA ? uap->type : NULL;
 }
 
@@ -2163,6 +2571,45 @@ static void pl011_config_port(struct uart_port *port, int flags)
 		pl011_request_port(port);
 	}
 }
+
+/*
+ * Configure RS485
+ * Locking: called with port lock held and IRQs disabled
+ */
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+static int pl011_config_rs485(struct uart_port *port,
+			      struct serial_rs485 *rs485)
+{
+	struct uart_amba_port *uap =
+			container_of(port, struct uart_amba_port, port);
+
+	port->rs485.flags = rs485->flags;
+	port->rs485.delay_rts_after_send = rs485->delay_rts_after_send;
+	port->rs485.delay_rts_before_send = rs485->delay_rts_before_send;
+
+	if (port->rs485.flags & SER_RS485_ENABLED) {
+		unsigned int cr;
+
+printk(KERN_INFO "RTS enable with before %d after %d\n", port->rs485.delay_rts_before_send, port->rs485.delay_rts_after_send);
+		hrtimer_try_to_cancel(&(uap->rs485_delay_timer));
+		hrtimer_try_to_cancel(&(uap->rs485_tx_empty_poll_timer));
+
+		/* If RS485 is enabled, disable auto RTS */
+		cr = pl011_read(uap, REG_CR);
+		cr &= ~UART011_CR_RTSEN;
+		pl011_write(cr, uap, REG_CR);
+
+		uap->rs485_current_status = rs485_receiving;
+		RS485_SET_RTS_SIGNAL(uap,
+			     port->rs485.flags
+				     & SER_RS485_RTS_AFTER_SEND);
+	} else {
+		RS485_SET_RTS_SIGNAL(uap, true);
+	}
+
+	return 0;
+}
+#endif
 
 /*
  * verify the new serial_struct (for TIOCSSERIAL).
@@ -2735,6 +3182,12 @@ static int pl011_probe(struct amba_device *dev, const struct amba_id *id)
 	uap->port.irq = dev->irq[0];
 	uap->port.ops = &amba_pl011_pops;
 
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+	uap->port.rs485_config = &pl011_config_rs485;
+	uap->port.rs485.flags = 0;	/* RS485 is not enabled by default */
+	dev_info(&dev->dev, "Software switching for RS485 enabled\n");
+#endif
+
 	snprintf(uap->type, sizeof(uap->type), "PL011 rev%u", amba_rev(dev));
 
 	ret = pl011_setup_port(&dev->dev, uap, &dev->res, portnr);
@@ -2908,10 +3361,15 @@ static struct amba_driver pl011_driver = {
 
 static int __init pl011_init(void)
 {
+#ifndef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
 	printk(KERN_INFO "Serial: AMBA PL011 UART driver\n");
+#else
+	printk(KERN_INFO "Serial: AMBA PL011 UART driver with soft RS485 support\n");
+#endif
 
 	if (platform_driver_register(&arm_sbsa_uart_platform_driver))
 		pr_warn("could not register SBSA UART platform driver\n");
+
 	return amba_driver_register(&pl011_driver);
 }
 
@@ -2920,6 +3378,11 @@ static void __exit pl011_exit(void)
 	platform_driver_unregister(&arm_sbsa_uart_platform_driver);
 	amba_driver_unregister(&pl011_driver);
 }
+
+#ifdef CONFIG_SERIAL_AMBA_PL011_SOFT_RS485
+#undef RS485_SET_RTS_SIGNAL
+#undef RS485_TX_FIFO_EMPTY
+#endif
 
 /*
  * While this can be a module, if builtin it's most likely the console

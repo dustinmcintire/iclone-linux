@@ -94,6 +94,7 @@ dtbo-$(CONFIG_ARCH_BCM2835) += \
 	imx219.dtbo \
 	imx290.dtbo \
 	imx477.dtbo \
+	intelliclone.dtbo \
 	iqaudio-codec.dtbo \
 	iqaudio-dac.dtbo \
 	iqaudio-dacplus.dtbo \
@@ -203,6 +204,7 @@ dtbo-$(CONFIG_ARCH_BCM2835) += \
 	tpm-slb9670.dtbo \
 	uart0.dtbo \
 	uart1.dtbo \
+	uart1-rts.dtbo \
 	uart2.dtbo \
 	uart3.dtbo \
 	uart4.dtbo \
