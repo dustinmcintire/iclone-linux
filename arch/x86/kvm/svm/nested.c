@@ -147,6 +147,9 @@ void recalc_intercepts(struct vcpu_svm *svm)
 
 	for (i = 0; i < MAX_INTERCEPT; i++)
 		c->intercepts[i] |= g->intercepts[i];
+
+	vmcb_set_intercept(c, INTERCEPT_VMLOAD);
+	vmcb_set_intercept(c, INTERCEPT_VMSAVE);
 }
 
 static void copy_vmcb_control_area(struct vmcb_control_area *dst,
@@ -246,11 +249,18 @@ static bool nested_vmcb_check_controls(struct vmcb_control_area *control)
 	return true;
 }
 
-static bool nested_vmcb_checks(struct vcpu_svm *svm, struct vmcb *vmcb12)
+static bool nested_vmcb_check_save(struct vcpu_svm *svm, struct vmcb *vmcb12)
 {
 	struct kvm_vcpu *vcpu = &svm->vcpu;
 	bool vmcb12_lma;
 
+	/*
+	 * FIXME: these should be done after copying the fields,
+	 * to avoid TOC/TOU races.  For these save area checks
+	 * the possible damage is limited since kvm_set_cr0 and
+	 * kvm_set_cr4 handle failure; EFER_SVME is an exception
+	 * so it is force-set later in nested_prepare_vmcb_save.
+	 */
 	if ((vmcb12->save.efer & EFER_SVME) == 0)
 		return false;
 
@@ -271,7 +281,7 @@ static bool nested_vmcb_checks(struct vcpu_svm *svm, struct vmcb *vmcb12)
 	if (kvm_valid_cr4(&svm->vcpu, vmcb12->save.cr4))
 		return false;
 
-	return nested_vmcb_check_controls(&vmcb12->control);
+	return true;
 }
 
 static void load_nested_vmcb_control(struct vcpu_svm *svm,
@@ -396,7 +406,14 @@ static void nested_prepare_vmcb_save(struct vcpu_svm *svm, struct vmcb *vmcb12)
 	svm->vmcb->save.gdtr = vmcb12->save.gdtr;
 	svm->vmcb->save.idtr = vmcb12->save.idtr;
 	kvm_set_rflags(&svm->vcpu, vmcb12->save.rflags);
-	svm_set_efer(&svm->vcpu, vmcb12->save.efer);
+
+	/*
+	 * Force-set EFER_SVME even though it is checked earlier on the
+	 * VMCB12, because the guest can flip the bit between the check
+	 * and now.  Clearing EFER_SVME would call svm_free_nested.
+	 */
+	svm_set_efer(&svm->vcpu, vmcb12->save.efer | EFER_SVME);
+
 	svm_set_cr0(&svm->vcpu, vmcb12->save.cr0);
 	svm_set_cr4(&svm->vcpu, vmcb12->save.cr4);
 	svm->vmcb->save.cr2 = svm->vcpu.arch.cr2 = vmcb12->save.cr2;
@@ -415,7 +432,10 @@ static void nested_prepare_vmcb_save(struct vcpu_svm *svm, struct vmcb *vmcb12)
 
 static void nested_prepare_vmcb_control(struct vcpu_svm *svm)
 {
-	const u32 mask = V_INTR_MASKING_MASK | V_GIF_ENABLE_MASK | V_GIF_MASK;
+	const u32 int_ctl_vmcb01_bits =
+		V_INTR_MASKING_MASK | V_GIF_MASK | V_GIF_ENABLE_MASK;
+
+	const u32 int_ctl_vmcb12_bits = V_TPR_MASK | V_IRQ_INJECTION_BITS_MASK;
 
 	if (nested_npt_enabled(svm))
 		nested_svm_init_mmu_context(&svm->vcpu);
@@ -423,11 +443,10 @@ static void nested_prepare_vmcb_control(struct vcpu_svm *svm)
 	svm->vmcb->control.tsc_offset = svm->vcpu.arch.tsc_offset =
 		svm->vcpu.arch.l1_tsc_offset + svm->nested.ctl.tsc_offset;
 
-	svm->vmcb->control.int_ctl             =
-		(svm->nested.ctl.int_ctl & ~mask) |
-		(svm->nested.hsave->control.int_ctl & mask);
+	svm->vmcb->control.int_ctl =
+		(svm->nested.ctl.int_ctl & int_ctl_vmcb12_bits) |
+		(svm->nested.hsave->control.int_ctl & int_ctl_vmcb01_bits);
 
-	svm->vmcb->control.virt_ext            = svm->nested.ctl.virt_ext;
 	svm->vmcb->control.int_vector          = svm->nested.ctl.int_vector;
 	svm->vmcb->control.int_state           = svm->nested.ctl.int_state;
 	svm->vmcb->control.event_inj           = svm->nested.ctl.event_inj;
@@ -454,7 +473,6 @@ int enter_svm_guest_mode(struct vcpu_svm *svm, u64 vmcb12_gpa,
 	int ret;
 
 	svm->nested.vmcb12_gpa = vmcb12_gpa;
-	load_nested_vmcb_control(svm, &vmcb12->control);
 	nested_prepare_vmcb_save(svm, vmcb12);
 	nested_prepare_vmcb_control(svm);
 
@@ -501,7 +519,10 @@ int nested_svm_vmrun(struct vcpu_svm *svm)
 	if (WARN_ON_ONCE(!svm->nested.initialized))
 		return -EINVAL;
 
-	if (!nested_vmcb_checks(svm, vmcb12)) {
+	load_nested_vmcb_control(svm, &vmcb12->control);
+
+	if (!nested_vmcb_check_save(svm, vmcb12) ||
+	    !nested_vmcb_check_controls(&svm->nested.ctl)) {
 		vmcb12->control.exit_code    = SVM_EXIT_ERR;
 		vmcb12->control.exit_code_hi = 0;
 		vmcb12->control.exit_info_1  = 0;
@@ -1204,6 +1225,8 @@ static int svm_set_nested_state(struct kvm_vcpu *vcpu,
 	 * TODO: validate reserved bits for all saved state.
 	 */
 	if (!(save->cr0 & X86_CR0_PG))
+		goto out_free;
+	if (!(save->efer & EFER_SVME))
 		goto out_free;
 
 	/*

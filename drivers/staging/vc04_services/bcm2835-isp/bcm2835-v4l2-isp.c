@@ -1032,7 +1032,9 @@ static int bcm2835_isp_node_try_fmt(struct file *file, void *priv,
 		/* In all cases, we only support the defaults for these: */
 		f->fmt.pix.ycbcr_enc = V4L2_MAP_YCBCR_ENC_DEFAULT(f->fmt.pix.colorspace);
 		f->fmt.pix.xfer_func = V4L2_MAP_XFER_FUNC_DEFAULT(f->fmt.pix.colorspace);
-		is_rgb = f->fmt.pix.colorspace == V4L2_COLORSPACE_SRGB;
+		/* RAW counts as sRGB here so that we get full range. */
+		is_rgb = f->fmt.pix.colorspace == V4L2_COLORSPACE_SRGB ||
+			f->fmt.pix.colorspace == V4L2_COLORSPACE_RAW;
 		f->fmt.pix.quantization = V4L2_MAP_QUANTIZATION_DEFAULT(is_rgb, f->fmt.pix.colorspace,
 									f->fmt.pix.ycbcr_enc);
 
@@ -1235,7 +1237,7 @@ static int bcm2835_isp_get_supported_fmts(struct bcm2835_isp_node *node)
 	if (ret) {
 		if (ret == MMAL_MSG_STATUS_ENOSPC) {
 			v4l2_err(&dev->v4l2_dev,
-				 "%s: port has more encodings than we provided space for. Some are dropped (%u vs %u).\n",
+				 "%s: port has more encodings than we provided space for. Some are dropped (%zu vs %u).\n",
 				 __func__, param_size / sizeof(u32),
 				 MAX_SUPPORTED_ENCODINGS);
 			num_encodings = MAX_SUPPORTED_ENCODINGS;

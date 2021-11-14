@@ -7,6 +7,8 @@ dtb-$(CONFIG_ARCH_BCM2835) += \
 	bcm2708-rpi-cm.dtb \
 	bcm2708-rpi-zero.dtb \
 	bcm2708-rpi-zero-w.dtb \
+	bcm2710-rpi-zero-2.dtb \
+	bcm2710-rpi-zero-2-w.dtb \
 	bcm2709-rpi-2-b.dtb \
 	bcm2710-rpi-2-b.dtb \
 	bcm2710-rpi-3-b.dtb \
@@ -1432,5 +1434,5 @@ subdir-y	:= overlays
 
 # Enable fixups to support overlays on BCM2835 platforms
 ifeq ($(CONFIG_ARCH_BCM2835),y)
-	DTC_FLAGS ?= -@
+	DTC_FLAGS += -@
 endif

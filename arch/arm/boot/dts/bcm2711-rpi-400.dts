@@ -24,14 +24,15 @@
 		emmc2bus = &emmc2bus;
 		ethernet0 = &genet;
 		pcie0 = &pcie0;
+		blconfig = &blconfig;
 	};
 
 	leds {
-		act {
+		led-act {
 			gpios = <&gpio 42 GPIO_ACTIVE_HIGH>;
 		};
 
-		pwr {
+		led-pwr {
 			label = "PWR";
 			gpios = <&expgpio 2 GPIO_ACTIVE_LOW>;
 			default-state = "keep";
@@ -180,12 +181,14 @@
 &hdmi0 {
 	clocks = <&firmware_clocks 13>, <&firmware_clocks 14>, <&dvp 0>, <&clk_27MHz>;
 	clock-names = "hdmi", "bvb", "audio", "cec";
+	wifi-2.4ghz-coexistence;
 	status = "okay";
 };
 
 &hdmi1 {
 	clocks = <&firmware_clocks 13>, <&firmware_clocks 14>, <&dvp 1>, <&clk_27MHz>;
 	clock-names = "hdmi", "bvb", "audio", "cec";
+	wifi-2.4ghz-coexistence;
 	status = "okay";
 };
 
@@ -213,6 +216,22 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pwm1_0_gpio40 &pwm1_1_gpio41>;
 	status = "okay";
+};
+
+&rmem {
+	/*
+	 * RPi4's co-processor will copy the board's bootloader configuration
+	 * into memory for the OS to consume. It'll also update this node with
+	 * its placement information.
+	 */
+	blconfig: nvram@0 {
+		compatible = "raspberrypi,bootloader-config", "nvmem-rmem";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		reg = <0x0 0x0 0x0>;
+		no-map;
+		status = "disabled";
+	};
 };
 
 /* SDHCI is used to control the SDIO for wireless */
@@ -331,11 +350,16 @@
 		mmc0 = &emmc2;
 		mmc1 = &mmcnr;
 		mmc2 = &sdhost;
-		/delete-property/ i2c2;
 		i2c3 = &i2c3;
 		i2c4 = &i2c4;
 		i2c5 = &i2c5;
 		i2c6 = &i2c6;
+		i2c20 = &ddc0;
+		i2c21 = &ddc1;
+		spi3 = &spi3;
+		spi4 = &spi4;
+		spi5 = &spi5;
+		spi6 = &spi6;
 		/delete-property/ intc;
 	};
 
@@ -537,13 +561,6 @@
 	pinctrl-0 = <&i2s_pins>;
 };
 
-/ {
-	__overrides__ {
-		/delete-property/ i2c2_baudrate;
-		/delete-property/ i2c2_iknowwhatimdoing;
-	};
-};
-
 // =============================================
 // Board specific stuff here
 
@@ -571,14 +588,14 @@
 };
 
 &leds {
-	act_led: act {
+	act_led: led-act {
 		label = "led0";
 		linux,default-trigger = "default-on";
 		default-state = "on";
 		gpios = <&gpio 42 GPIO_ACTIVE_HIGH>;
 	};
 
-	pwr_led: pwr {
+	pwr_led: led-pwr {
 		label = "led1";
 		linux,default-trigger = "default-on";
 		gpios = <&expgpio 2 GPIO_ACTIVE_LOW>;
@@ -593,6 +610,10 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&audio_pins>;
 	brcm,disable-headphones = <1>;
+};
+
+&genet_mdio {
+	clock-frequency = <1950000>;
 };
 
 / {
